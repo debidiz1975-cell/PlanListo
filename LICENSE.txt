@@ -1,0 +1,12 @@
+PlanListo
+Copyright (c) 2026 Deborah Diz. Todos los derechos reservados.
+
+Este software, su código fuente, su diseño, sus textos y el nombre "PlanListo" son propiedad de su titular.
+Queda prohibido copiar, modificar, distribuir, publicar o usar este software, total o parcialmente,
+sin autorización previa y por escrito de la titular.
+
+El código se publica únicamente para que la aplicación pueda funcionar en el navegador.
+Que sea visible no implica ninguna licencia de uso.
+
+All rights reserved. No permission is granted to copy, modify, distribute or use this software
+without the prior written consent of the copyright holder.
