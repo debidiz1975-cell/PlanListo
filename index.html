@@ -6,10 +6,6 @@
 <!-- Aceleran el arranque: se empieza a bajar Firebase en paralelo mientras se arma la pantalla -->
 <link rel="preconnect" href="https://www.gstatic.com" crossorigin>
 <link rel="preconnect" href="https://www.google.com" crossorigin>
-<link rel="modulepreload" href="https://www.gstatic.com/firebasejs/13.1.0/firebase-app.js">
-<link rel="modulepreload" href="https://www.gstatic.com/firebasejs/13.1.0/firebase-app-check.js">
-<link rel="modulepreload" href="https://www.gstatic.com/firebasejs/13.1.0/firebase-auth.js">
-<link rel="modulepreload" href="https://www.gstatic.com/firebasejs/13.1.0/firebase-firestore.js">
 <title>PlanListo</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -275,13 +271,11 @@ details.panel>summary{cursor:pointer;font-family:var(--font-display);font-weight
 </main>
 
 <script type="module">
-import { initializeApp } from 'https://www.gstatic.com/firebasejs/13.1.0/firebase-app.js';
-import { initializeAppCheck, ReCaptchaEnterpriseProvider } from 'https://www.gstatic.com/firebasejs/13.1.0/firebase-app-check.js';
-import { getAuth, onAuthStateChanged, signInAnonymously } from 'https://www.gstatic.com/firebasejs/13.1.0/firebase-auth.js';
-import {
-  getFirestore, doc, getDoc, setDoc, addDoc, updateDoc, deleteDoc,
-  collection, onSnapshot, serverTimestamp, getDocs
-} from 'https://www.gstatic.com/firebasejs/13.1.0/firebase-firestore.js';
+/* Firebase se descarga DESPUÉS de mostrar la pantalla (ver boot): así el formulario
+   aparece enseguida, aun con conexión lenta, y no espera a que baje todo el SDK. */
+let initializeApp, initializeAppCheck, ReCaptchaEnterpriseProvider, getAuth, onAuthStateChanged, signInAnonymously;
+let getFirestore, doc, getDoc, setDoc, addDoc, updateDoc, deleteDoc, collection, onSnapshot, serverTimestamp, getDocs;
+const FB = 'https://www.gstatic.com/firebasejs/13.1.0/';
 import { firebaseConfig } from './firebase-config.js';
 import {
   ORDER, LEVELS, evalStage, bestOf, tiedOf, tallyStage, rankCombos,
@@ -1565,6 +1559,14 @@ async function boot() {
   if (first.get('p') || first.get('pro')) { $('#booting').hidden = false; }
   else { $('#home').hidden = false; renderHomeList(); }
   try {
+    const [mApp, mCheck, mAuth, mStore] = await Promise.all([
+      import(FB + 'firebase-app.js'), import(FB + 'firebase-app-check.js'),
+      import(FB + 'firebase-auth.js'), import(FB + 'firebase-firestore.js')
+    ]);
+    ({ initializeApp } = mApp);
+    ({ initializeAppCheck, ReCaptchaEnterpriseProvider } = mCheck);
+    ({ getAuth, onAuthStateChanged, signInAnonymously } = mAuth);
+    ({ getFirestore, doc, getDoc, setDoc, addDoc, updateDoc, deleteDoc, collection, onSnapshot, serverTimestamp, getDocs } = mStore);
     const app = initializeApp(firebaseConfig);
     /* App Check: avisa a Firebase que las consultas vienen de la app real de PlanListo.
        Tiene que ir ANTES de usar Auth o Firestore. Si falla, la app sigue andando
