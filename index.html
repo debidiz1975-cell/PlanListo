@@ -221,7 +221,7 @@ details.panel>summary{cursor:pointer;font-family:var(--font-display);font-weight
       <div id="newForm" class="stack" hidden>
         <div>
           <label for="npTitle">Ponele nombre al plan</label>
-          <input type="text" id="npTitle" placeholder="Por ejemplo: Cena de fin de año">
+          <input type="text" id="npTitle" maxlength="100" placeholder="Por ejemplo: Cena de fin de año">
         </div>
         <div>
           <label for="npOrg">Tu nombre</label>
@@ -1492,6 +1492,7 @@ async function createPlan() {
   const people = [org];
   names.forEach((n) => { if (!people.some((p) => p.toLowerCase() === n.toLowerCase())) people.push(n); });
   if (people.length < 2) { msg.textContent = 'Agregá al menos una persona invitada.'; $('#npPeople').focus(); return; }
+  if (people.length > 40) { msg.textContent = 'Son demasiadas personas: el máximo es 40.'; $('#npPeople').focus(); return; }
   const dates = [];
   ['1', '2', '3', '4'].forEach((n) => {
     const d = $('#d' + n).value;
@@ -1597,5 +1598,6 @@ async function boot() {
 }
 boot();
 </script>
+<!-- Cloudflare Web Analytics --><script type='module' src='https://static.cloudflareinsights.com/beacon.min.js' data-cf-beacon='{"token": "6ff858d31c904f1a8ac5546f68ebaa50"}'></script><!-- End Cloudflare Web Analytics -->
 </body>
 </html>
