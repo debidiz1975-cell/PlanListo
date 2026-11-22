@@ -65,9 +65,12 @@ input:focus-visible,select:focus-visible,button:focus-visible,a:focus-visible{ou
 @media (max-width:480px){.grid2{grid-template-columns:1fr}}
 button,.btn{
   display:inline-flex;align-items:center;justify-content:center;text-align:center;
-  font:inherit;font-weight:700;min-height:56px;padding:10px 24px;border-radius:999px;
+  font:inherit;font-weight:700;min-height:56px;padding:10px 24px;border-radius:14px;
   border:2px solid var(--accent);background:var(--accent);color:var(--accent-fg);cursor:pointer;text-decoration:none;
 }
+button.sq,.btn.sq{border-radius:14px}
+.wiz-nav.col{flex-direction:column}
+.wiz-nav.col>button{width:100%}
 button.ghost,.btn.ghost{background:transparent;color:var(--accent)}
 button.wa,.btn.wa{background:var(--cta);border-color:var(--cta);color:var(--cta-fg)}
 button.mini{min-height:44px;padding:6px 16px;font-size:.95rem}
@@ -256,13 +259,14 @@ details.panel>summary{cursor:pointer;font-family:var(--font-display);font-weight
       <div id="plans" class="stack"></div>
     </section>
 
-    <section id="proBox" aria-labelledby="t-pro"></section>
+    <section id="proBox"></section>
     <section id="venuesPreview"></section>
 
   </div>
 
   <div id="planView" class="stack" hidden></div>
   <div id="proView" class="stack" hidden></div>
+  <div id="bizView" class="stack" hidden></div>
   <footer class="legal">
     <p>© 2026 PlanListo. Todos los derechos reservados.</p>
     <p>Versión de prueba. El nombre, el diseño y el código de PlanListo no pueden copiarse ni usarse sin autorización.</p>
@@ -602,7 +606,7 @@ function statusBannerAll(P, who, isOrg) {
   if (isOrg && needsInvite(P, who)) {
     return mkBanner('todo', 'Paso 1: invitá al grupo',
       ['Mandá el enlace por WhatsApp. Cada persona lo toca, elige su nombre y vota todo de una vez. No tiene que instalar nada.',
-       answeredAll(P, who) ? 'Tu voto ya está registrado. Falta que responda el resto del grupo.' : 'Paso 2: mientras esperan, votá vos más abajo.'],
+       answeredAll(P, who) ? 'Tu voto ya está registrado. Falta que responda el resto del grupo.' : 'Después, en el Paso 2, votá vos.'],
       h('div', { class: 'actions' },
         h('a', { class: 'btn wa', href: waUrl(inviteText(P)), target: '_blank', rel: 'noopener', onclick: () => { markInvited(P.id); setTimeout(render, 600); } }, 'Invitar por WhatsApp'),
         h('button', { type: 'button', class: 'ghost', onclick: () => copyLink(P) }, 'Copiar enlace')));
@@ -610,18 +614,18 @@ function statusBannerAll(P, who, isOrg) {
   const missing = P.people.filter((p) => !votedAny(P, p));
   if (!answeredAll(P, who)) {
     const c = answeredCount(P, who);
-    return mkBanner('todo', 'Te toca votar',
-      [isOrg ? '✓ Ya invitaste al grupo.' : null,
+    return mkBanner('todo', 'Paso 2: votá vos',
+      [isOrg ? '✓ Paso 1 listo: ya invitaste al grupo.' : null,
        'Son ' + total + ' preguntas, una debajo de la otra. En cada una marcá lo que te parezca. Las opciones que dejes sin marcar no cuentan en contra.',
        c ? 'Ya respondiste ' + c + ' de ' + total + '. Seguí bajando.' : null]);
   }
   if (isOrg) {
     const waiting = P.people.filter((p) => p !== who && !answeredAll(P, p));
     if (!waiting.length) return canClose(P)
-      ? mkBanner('done', '✓ Votaron todos', ['Ya podés cerrar el plan. Está más abajo, en "Cerrar el plan".'])
+      ? mkBanner('done', 'Paso 4: cerrá el plan', ['✓ Votaron todos. Ya podés cerrar el plan: tocá el botón "Cerrar el plan", más abajo.'])
       : mkBanner('todo', '✓ Votaron todos', ['Con estos votos todavía no alcanza para cerrar: hacen falta al menos ' + minNeeded(P) + ' personas que puedan ir.', P.people.length > 2 ? 'Más abajo podés ver la mejor opción y cambiar el mínimo.' : 'Más abajo podés ver la mejor opción.']);
-    return mkBanner('done', '✓ Ya votaste todo',
-      ['Faltan terminar de votar: ' + waiting.join(', ') + '.', 'Más abajo podés recordarles por WhatsApp o cerrar el plan cuando quieras.']);
+    return mkBanner('done', 'Paso 3: esperá a que voten',
+      ['✓ Ya votaste todo. Faltan terminar de votar: ' + waiting.join(', ') + '.', 'Más abajo podés recordarles por WhatsApp. Cuando quieras, en el Paso 4 podés cerrar el plan, aunque falte alguien.']);
   }
   return mkBanner('done', '✓ ¡Listo, ya votaste todo!',
     ['No tenés que hacer nada más.', 'Cuando ' + P.organizer + ' cierre el plan, vas a ver acá el resultado con el día, la hora y el lugar. Volvé a entrar con este mismo enlace.',
@@ -636,19 +640,19 @@ function whoStatus(P, p) {
   if (votedAny(P, p)) { const c = answeredCount(P, p); return { ok: false, text: c ? 'Votó ' + c + ' de ' + total + ' preguntas' : 'Votó solo una parte' }; }
   return { ok: false, text: 'Todavía no votó' };
 }
-function whoBlock(P, who) {
+function whoBlock(P, who, isOrg) {
   const st = P.people.map((p) => ({ p: p, s: whoStatus(P, p) }));
   const done = st.filter((x) => x.s.ok).length;
   const waiting = st.filter((x) => !x.s.ok && x.p !== who).map((x) => x.p);
   const txt = 'Falta tu voto en ' + P.title + '. Son pocas preguntas, tocá el enlace y votá: ' + planLink(P.id);
   return h('section', { class: 'panel', 'aria-labelledby': 'wh' },
-    h('h3', { id: 'wh' }, 'Terminaron de votar: ' + done + ' de ' + P.people.length),
+    h('h3', { id: 'wh' }, isOrg ? 'Paso 3: ¿Quién ya votó? ' + done + ' de ' + P.people.length : 'Terminaron de votar: ' + done + ' de ' + P.people.length),
     h('ul', { class: 'who' }, st.map((x) => h('li', { class: x.s.ok ? 'ok' : '' },
       x.p + (x.p === who ? ' (vos)' : ''), h('span', null, x.s.text)))),
-    waiting.length
+    isOrg && waiting.length
       ? h('div', { class: 'actions' }, h('a', { class: 'btn wa', href: waUrl(txt), target: '_blank', rel: 'noopener' }, 'Recordarles por WhatsApp'))
       : null,
-    waiting.length ? h('p', { class: 'meta' }, 'El recordatorio es un mensaje con el enlace, para mandar al grupo.') : null);
+    isOrg && waiting.length ? h('p', { class: 'meta' }, 'El recordatorio es un mensaje con el enlace, para mandar al grupo.') : null);
 }
 // Mínimo de personas que tienen que poder ir para poder cerrar el plan (nunca menos de 2).
 function defMin(n) { return Math.min(n, Math.max(2, Math.ceil(n / 2))); }
@@ -683,13 +687,13 @@ function bestBlock(P) {
 }
 function closePanel(P, who) {
   const top = rankCombos(P, 1)[0];
-  if (!top) return h('section', { class: 'panel' }, h('h3', null, 'Cerrar el plan'),
+  if (!top) return h('section', { class: 'panel' }, h('h3', null, 'Paso 4: cerrar el plan'),
     h('button', { type: 'button', disabled: true }, 'Cerrar el plan'),
     h('p', { class: 'meta' }, 'Todavía no hay votos. Cuando haya, vas a poder cerrar el plan con este botón.'));
   const waiting = P.people.filter((p) => !answeredAll(P, p));
   const need = minNeeded(P);
   const kids = [
-    h('h3', null, 'Cerrar el plan'),
+    h('h3', null, 'Paso 4: cerrar el plan'),
     h('p', null, 'Podés cerrarlo aunque falte alguien, siempre que puedan ir al menos ' + need + ' personas. Al cerrar, todo el grupo ve el resultado final (día, hora y lugar) y ya no pueden cambiar su voto.')
   ];
   if (top.can < need) {
@@ -809,9 +813,9 @@ function votingWizard(P, who, isOrg) {
         return h('p', { class: 'sumline' }, h('strong', null, st.q + ' '), parts.join(' · '));
       }),
       h('p', { class: 'meta' }, 'Tus respuestas ya están guardadas. Si está todo bien, tocá Terminar.'),
-      h('div', { class: 'wiz-nav' },
-        h('button', { type: 'button', class: 'ghost', onclick: () => go('vote', 0) }, 'Revisar o cambiar mis respuestas'),
-        h('button', { type: 'button', onclick: finish }, 'Terminar ✓')));
+      h('div', { class: 'wiz-nav col' },
+        h('button', { type: 'button', class: 'ghost sq', onclick: () => go('vote', 0) }, 'Revisar o cambiar mis respuestas'),
+        h('button', { type: 'button', class: 'sq', onclick: finish }, 'Terminar ✓')));
   }
 
   const st = steps[wizStep], k = st.k, last = wizStep === steps.length - 1;
@@ -1059,25 +1063,32 @@ function renderPro() {
   const box = $('#proBox');
   if (!box) return;
   const done = proInterest();
-  box.replaceChildren(h('div', { class: 'pro' },
-    h('span', { class: 'tag-promo', style: 'align-self:flex-start' }, 'Próximamente'),
-    h('h2', { id: 't-pro' }, 'PlanListo Pro'),
-    h('p', { class: 'meta' }, 'Para quienes organizan juntadas seguido. Votar y responder invitaciones siempre es gratis y no hace falta instalar nada.'),
-    h('p', { class: 'meta' }, 'Cuando Pro esté disponible, quien organiza podrá armar gratis hasta 3 planes por mes. Hoy no hay ningún límite.'),
-    h('p', { class: 'price' }, '$6.999 ', h('small', null, 'por mes · precio de lanzamiento a confirmar')),
-    h('ul', null, [
-      'Grupos frecuentes ilimitados',
-      'Juntadas recurrentes automáticas',
-      'Recordatorios personalizados',
-      'Historial de encuentros',
-      'Preferencias guardadas de cada grupo',
-      'Seguimiento de confirmaciones',
-      'Escapadas y viajes grupales'
-    ].map((x) => h('li', null, x))),
-    h('button', { type: 'button', onclick: goPro }, done ? 'Ver mi anotación en Pro' : 'Quiero ser Pro'),
-    h('p', { class: 'meta' }, 'Todavía no se cobra nada: por ahora es una lista de espera.')));
+  box.replaceChildren(h('button', { type: 'button', class: 'ghost', style: 'width:100%', onclick: goPro }, done ? 'Ver mi anotación en Pro' : 'Conocé PlanListo Pro'));
   const vb = $('#venuesPreview');
-  if (vb) vb.replaceChildren(venuesPanel('Palermo', 2, 'Así se verán los lugares promocionados', 3));
+  if (vb) vb.replaceChildren(h('button', { type: 'button', class: 'ghost', style: 'width:100%;height:auto;line-height:1.35;padding:14px 20px', onclick: goBiz }, '¿Querés que tu restaurante, bar, parrilla o canchita sea elegido por sobre el resto? Sumate a PlanListo'));
+}
+
+/* ---------- Para comercios (vista previa) ---------- */
+function goBiz() {
+  history.pushState({}, '', '?comercios=1');
+  route();
+  window.scrollTo(0, 0);
+}
+function renderBizView() {
+  const box = $('#bizView');
+  if (!box) return;
+  const back = h('div', null, h('button', { type: 'button', class: 'link', onclick: () => go(null) }, '← Volver al inicio'));
+  box.replaceChildren(back,
+    h('section', { class: 'panel' },
+      h('span', { class: 'tag-promo', style: 'align-self:flex-start' }, 'Próximamente'),
+      h('h2', null, 'Sumá tu local a PlanListo'),
+      h('p', null, 'Cuando un grupo cierra su plan, PlanListo le muestra lugares de la zona que eligieron. Si tenés un restaurante, bar, parrilla, café o canchita, podés aparecer ahí, marcado como "Promocionado".'),
+      h('p', { class: 'meta' }, 'Todavía no hay comercios publicados. Los lugares de abajo son solo ejemplos de cómo se van a ver.'),
+      h('a', { class: 'btn wa sq', href: 'mailto:hola@planlisto.com.ar?subject=' + encodeURIComponent('Quiero sumar mi local a PlanListo') + '&body=' + encodeURIComponent('Hola, quiero sumar mi local a PlanListo.\n\nNombre del local:\nTipo (restaurante, bar, parrilla, café, canchita...):\nZona:\nTeléfono o WhatsApp:'), style: 'width:100%' }, 'Quiero sumar mi local')),
+    h('section', { class: 'panel', 'aria-labelledby': 'bz' },
+      h('h3', { id: 'bz' }, 'Así se verán los lugares promocionados'),
+      h('div', { class: 'venues' }, VENUE_TEMPLATES.map((v) => promoBanner(v, 'Palermo')))),
+    h('div', null, h('button', { type: 'button', class: 'ghost', style: 'width:100%', onclick: () => go(null) }, 'Ir al inicio')));
 }
 
 function closedBlock(P) {
@@ -1130,8 +1141,8 @@ function organizerControls(P) {
 // Aviso de PlanListo Pro y botón para volver al inicio (se muestra al final de la pantalla de quien vota).
 function proTeaser() {
   return h('section', { class: 'panel' },
-    h('p', { style: 'margin:0' }, '¿Organizás seguido? Mirá PlanListo Pro en la pantalla de inicio.'),
-    h('button', { type: 'button', class: 'ghost', onclick: goPro }, 'Quiero ser Pro'));
+    h('p', { style: 'margin:0' }, '¿Organizás seguido? Conocé PlanListo Pro.'),
+    h('button', { type: 'button', class: 'ghost', onclick: goPro }, 'Conocé PlanListo Pro'));
 }
 function homeButton() {
   return h('button', { type: 'button', class: 'ghost', style: 'width:100%', onclick: () => go(null) }, 'Ir al inicio (Tus planes)');
@@ -1177,19 +1188,20 @@ function renderPlan() {
   } else {
     if (todo) {
       if (isOrg) {
-        kids.push(bestBlock(P));
-        kids.push(whoBlock(P, who));
-        kids.push(closePanel(P, who));
         const open = orgVotesOpen === null ? !answeredAll(P, who) : orgVotesOpen;
         const det = h('details', { class: 'panel' },
-          h('summary', null, answeredAll(P, who) ? 'Tu voto ✓ (tocá para verlo o cambiarlo)' : 'Tu voto: te faltan preguntas'),
+          h('summary', null, answeredAll(P, who) ? 'Paso 2: Tu voto ✓ (tocá para verlo o cambiarlo)' : 'Paso 2: votá vos (tocá acá para votar)'),
           votingWizard(P, who, true));
         if (open) det.setAttribute('open', '');
         det.addEventListener('toggle', () => { orgVotesOpen = det.open; });
         kids.push(det);
+        kids.push(whoBlock(P, who, true));
+        kids.push(bestBlock(P));
+        kids.push(closePanel(P, who));
         if (!needsInvite(P, who)) kids.push(inviteBlock(P));
       } else {
         kids.push(votingWizard(P, who, false));
+        if (who && answeredAll(P, who)) kids.push(whoBlock(P, who, false));
         if (who && answeredAll(P, who)) { const rk = rankingBlock(P); if (rk) kids.push(rk); }
         kids.push(h('p', { class: 'meta' }, 'Cuando ' + P.organizer + ' cierre el plan, vas a ver el resultado.'));
         if (who && answeredAll(P, who)) { kids.push(proTeaser()); kids.push(homeButton()); }
@@ -1328,14 +1340,16 @@ function openPlan(id) {
     cur.votes = v; render();
   }, () => {}));
 }
-let proMode = false;
+let proMode = false, bizMode = false;
 function render() {
   const inPlan = !!cur;
-  $('#home').hidden = inPlan || proMode;
+  $('#home').hidden = inPlan || proMode || bizMode;
   $('#planView').hidden = !inPlan;
   $('#proView').hidden = !proMode;
+  $('#bizView').hidden = !bizMode;
   if (inPlan) renderPlan();
   if (proMode) renderProView();
+  if (bizMode) renderBizView();
 }
 function go(id) {
   history.pushState({}, '', id ? '?p=' + id : location.pathname);
@@ -1347,8 +1361,9 @@ function route() {
   const qp = new URLSearchParams(location.search);
   const id = qp.get('p');
   proMode = !id && !!qp.get('pro');
+  bizMode = !id && !proMode && !!qp.get('comercios');
   if (id) { openPlan(id); render(); }
-  else if (proMode) { leavePlan(); render(); }
+  else if (proMode || bizMode) { leavePlan(); render(); }
   else { leavePlan(); render(); loadHome(); }
 }
 
@@ -1556,7 +1571,7 @@ async function boot() {
   setupHome();
   // Mostramos la pantalla ya, sin esperar la conexión (que sigue en segundo plano).
   const first = new URLSearchParams(location.search);
-  if (first.get('p') || first.get('pro')) { $('#booting').hidden = false; }
+  if (first.get('p') || first.get('pro') || first.get('comercios')) { $('#booting').hidden = false; }
   else { $('#home').hidden = false; renderHomeList(); }
   try {
     const [mApp, mCheck, mAuth, mStore] = await Promise.all([
