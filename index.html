@@ -79,7 +79,16 @@ button.mini{min-height:44px;padding:6px 16px;font-size:.95rem}
 button.link{border:0;background:none;color:var(--muted);min-height:44px;text-decoration:underline;font-weight:400;padding:6px 8px;justify-content:flex-start}
 button.danger{border-color:var(--warn);background:var(--warn);color:var(--surface)}
 button.big{width:100%;min-height:64px;font-size:1.25rem}
-button.del{width:100%;background:transparent;border:2px solid var(--warn);color:var(--warn);font-size:1.05rem}
+.more{border-top:2px solid var(--line);padding-top:14px;display:flex;flex-direction:column;gap:2px}
+.more h2{font-size:1rem;color:var(--muted);margin:0 0 4px;font-weight:700}
+.statusline{display:flex;flex-wrap:wrap;align-items:center;gap:6px 10px}
+.tag{display:inline-block;border-radius:99px;padding:3px 12px;font-weight:800;font-size:1.05rem;line-height:1.3;border:2px solid transparent}
+.tag.votando{background:var(--gold-bg);color:var(--gold-fg);border-color:var(--gold)}
+.tag.cerrado{background:var(--good-bg);color:var(--good);border-color:var(--good)}
+.tag.cancelado{background:transparent;color:var(--warn);border-color:var(--warn)}
+button.row{width:100%;height:auto;min-height:48px;background:transparent;border:0;border-bottom:1px solid var(--line);border-radius:0;color:var(--accent);font-size:1rem;font-weight:700;text-align:left;justify-content:space-between;display:flex;align-items:center;gap:12px;padding:10px 4px;line-height:1.35}
+button.row::after{content:"›";font-size:1.5rem;line-height:1;color:var(--muted)}
+button.del{width:auto;align-self:flex-start;background:transparent;border:2px solid var(--warn);color:var(--warn);font-size:.95rem;padding-left:16px;padding-right:16px}
 .delwrap{margin-top:18px;padding-top:18px;border-top:1px solid var(--line)}
 button:disabled{opacity:.5;cursor:not-allowed}
 .msg{color:var(--warn);font-weight:700}
@@ -93,6 +102,16 @@ button:disabled{opacity:.5;cursor:not-allowed}
 .steps li{border:2px solid var(--line);border-radius:99px;padding:6px 14px;font-weight:700;color:var(--muted);overflow-wrap:anywhere}
 .steps li.done{border-color:var(--good);color:var(--good);background:var(--good-bg)}
 .steps li.now{border-color:var(--accent);color:var(--accent)}
+.strip{list-style:none;margin:0;padding:0;display:grid;grid-auto-flow:column;grid-auto-columns:1fr;gap:4px}
+.strip li{display:flex;flex-direction:column;align-items:center;gap:6px;text-align:center;position:relative;font-weight:700;color:var(--muted);font-size:.95rem;line-height:1.2;min-width:0}
+.strip li+li::before{content:"";position:absolute;top:19px;right:calc(50% + 24px);left:calc(-50% + 24px);height:3px;background:var(--line)}
+.strip li.done+li::before,.strip li.done+li.now::before{background:var(--good)}
+.srv{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
+.strip .n{width:38px;height:38px;border-radius:50%;border:3px solid var(--line);background:var(--surface);display:flex;align-items:center;justify-content:center;font-size:1.1rem;color:var(--muted);position:relative;z-index:1}
+.strip li.done .n{background:var(--good);border-color:var(--good);color:var(--accent-fg)}
+.strip li.done{color:var(--good)}
+.strip li.now .n{background:var(--cta);border-color:var(--cta);color:var(--cta-fg)}
+.strip li.now{color:var(--fg)}
 .opts{display:flex;flex-direction:column;gap:12px}
 .opt{border:2px solid var(--line);border-radius:12px;padding:14px;display:flex;flex-direction:column;gap:10px;min-width:0}
 .opt.best{border-color:var(--good);background:var(--good-bg)}
@@ -266,8 +285,11 @@ details.panel>summary{cursor:pointer;font-family:var(--font-display);font-weight
     </section>
 
     <section id="acctBox" aria-live="polite"></section>
-    <section id="proBox"></section>
-    <section id="venuesPreview"></section>
+    <section class="more" aria-labelledby="t-more">
+      <h2 id="t-more">Más de PlanListo</h2>
+      <div id="proBox"></div>
+      <div id="venuesPreview"></div>
+    </section>
 
   </div>
 
@@ -345,7 +367,7 @@ const stageIndex = (k) => STAGES.findIndex((s) => s.k === k);
 let db = null, auth = null, uid = null;
 let cur = null;               // plan abierto: { id, data, votes, unsubs, missing, error }
 let homeItems = [];           // planes de "Tus planes"
-let pendingDelete = null;
+let pendingDelete = null, pendingCancel = null;
 let kindPicked = null;
 let statusTimer = null;
 
@@ -454,7 +476,7 @@ function shape() {
   const P = {
     id: cur.id, title: d.title, organizer: d.organizer, people: d.people || [],
     stage: d.stage, rule: d.rule, result: d.result || {}, ownerUid: d.ownerUid,
-    kind: d.kind || '', note: typeof d.note === 'string' ? d.note : '', minPeople: d.minPeople || 0, createdAt: d.createdAt, closedAt: d.closedAt, flow: d.flow || '', consensus: d.consensus || null
+    kind: d.kind || '', canceled: !!d.canceled, note: typeof d.note === 'string' ? d.note : '', minPeople: d.minPeople || 0, createdAt: d.createdAt, closedAt: d.closedAt, flow: d.flow || '', consensus: d.consensus || null
   };
   STAGES_ALL.forEach((s) => {
     const st = (d.stages || {})[s.k] || { options: [], round: 1 };
@@ -638,6 +660,23 @@ function statusBannerAll(P, who, isOrg) {
   return mkBanner('done', '✓ ¡Listo, ya votaste todo!',
     ['No tenés que hacer nada más.', 'Cuando ' + P.organizer + ' cierre el plan, vas a ver acá el resultado con el día, la hora y el lugar. Volvé a entrar con este mismo enlace.',
      'Votaron ' + (n - missing.length) + ' de ' + n + '.']);
+}
+
+
+// Tira de pasos: círculos numerados que muestran en cuál paso está la persona.
+function stripAll(P, who, isOrg) {
+  if (P.stage === 'cerrado') return null;
+  const voted = !!who && answeredAll(P, who);
+  const others = P.people.filter((p) => p !== who);
+  const allVoted = voted && others.every((p) => answeredAll(P, p));
+  const steps = isOrg
+    ? [['Invitar', !needsInvite(P, who)], ['Votar', voted], ['Esperar', allVoted], ['Cerrar', false]]
+    : [['Tu nombre', !!who], ['Votar', voted], ['Esperar', false]];
+  const nowIdx = steps.findIndex((x) => !x[1]);
+  return h('ol', { class: 'strip', 'aria-label': 'Pasos del plan' }, steps.map((x, i) =>
+    h('li', { class: x[1] ? 'done' : (i === nowIdx ? 'now' : ''), 'aria-current': i === nowIdx ? 'step' : false },
+      h('span', { class: 'n', 'aria-hidden': 'true' }, x[1] ? '✓' : String(i + 1)),
+      h('span', null, x[0], x[1] ? h('span', { class: 'srv' }, ' (listo)') : null))));
 }
 
 let confirmClose = false;
@@ -1071,9 +1110,9 @@ function renderPro() {
   const box = $('#proBox');
   if (!box) return;
   const done = proInterest();
-  box.replaceChildren(h('button', { type: 'button', class: 'ghost', style: 'width:100%', onclick: goPro }, done ? 'Ver mi anotación en Pro' : 'Conocé PlanListo Pro'));
+  box.replaceChildren(h('button', { type: 'button', class: 'row', onclick: goPro }, done ? 'Ver mi anotación en Pro' : 'Conocé PlanListo Pro'));
   const vb = $('#venuesPreview');
-  if (vb) vb.replaceChildren(h('button', { type: 'button', class: 'ghost', style: 'width:100%;height:auto;line-height:1.35;padding:14px 20px', onclick: goBiz }, '¿Querés que tu restaurante, bar, parrilla o canchita sea elegido por sobre el resto? Sumate a PlanListo'));
+  if (vb) vb.replaceChildren(h('button', { type: 'button', class: 'row', onclick: goBiz }, 'Para restaurantes, bares, parrillas y canchas: sumate a PlanListo'));
 }
 
 /* ---------- Para comercios (vista previa) ---------- */
@@ -1198,11 +1237,11 @@ function saveLinkBlock(P) {
       h('button', { type: 'button', class: 'ghost', onclick: (e) => copyText(link, e.currentTarget) }, 'Copiar enlace')),
     h('p', { class: 'meta', style: 'margin:0' }, 'En WhatsApp, elegí tu propio nombre en la lista de chats para que el enlace quede guardado ahí.'));
 }
-function inviteBlock(P) {
+function inviteBlock(P, numbered) {
   const link = planLink(P.id);
   const input = h('input', { type: 'text', readonly: true, value: link, id: 'linkInput', 'aria-label': 'Enlace del plan' });
   return h('section', { class: 'panel' },
-    h('h3', null, '¿Falta alguien? Reenviá la invitación'),
+    h('h3', null, (numbered ? 'Paso 1: ' : '') + '¿Falta alguien? Reenviá la invitación'),
     h('p', { class: 'meta' }, 'Es el mismo enlace para todo el grupo. Cada persona lo toca, elige su nombre y vota. No tiene que instalar nada.'),
     h('div', { class: 'linkbox' }, input),
     h('div', { class: 'actions' },
@@ -1254,14 +1293,45 @@ function renderPlan() {
     kids.push(h('div', null,
       h('h2', null, P.title),
       h('p', { class: 'meta' }, 'Organizás vos · ' + P.people.length + ' personas')));
+    if (!P.canceled) {
+      kids.push(pendingCancel === P.id
+        ? h('section', { class: 'panel', role: 'alertdialog', 'aria-label': 'Cancelar el plan' },
+            h('h3', null, '¿Cancelar este plan?'),
+            h('p', { style: 'margin:0' }, 'El grupo va a ver un aviso de que el plan fue cancelado y ya no se va a poder votar. Los votos no se borran: si te arrepentís, lo podés reactivar.'),
+            h('div', { class: 'actions' },
+              h('button', { type: 'button', class: 'danger sq', onclick: async (e) => {
+                e.currentTarget.disabled = true;
+                try { await updateDoc(doc(db, 'plans', P.id), { canceled: true, canceledAt: serverTimestamp() }); pendingCancel = null; }
+                catch (err) { console.error('cancelPlan', err); fail('No pudimos cancelar el plan. Probá de nuevo.'); e.currentTarget.disabled = false; }
+              } }, 'Sí, cancelar el plan'),
+              h('button', { type: 'button', class: 'ghost sq', onclick: () => { pendingCancel = null; render(); } }, 'No, seguir con el plan')))
+        : h('button', { type: 'button', class: 'del', onclick: () => { pendingCancel = P.id; render(); } }, 'Cancelar este plan'));
+    }
   } else {
-    kids.push(h('h2', null, P.organizer + ' quiere organizar ' + P.title + '.'));
+    kids.push(h('h2', null, P.canceled ? P.title : P.organizer + ' quiere organizar ' + P.title + '.'));
   }
-  if (P.note) {
+  if (P.canceled) {
+    const cancelMsg = 'Cancelé el plan "' + P.title + '". Podés ver el aviso acá: ' + planLink(P.id);
+    kids.push(h('section', { class: 'panel', role: 'status', style: 'border-color:var(--warn)' },
+      h('h3', { style: 'margin:0' }, 'Este plan fue cancelado'),
+      h('p', { style: 'margin:0' }, isOrg
+        ? 'Cancelaste este plan. El grupo ve este aviso cuando abre el enlace. Ya no se puede votar.'
+        : P.organizer + ' canceló este plan. Ya no hace falta que votes.'),
+      isOrg ? h('div', { class: 'actions' },
+        h('a', { class: 'btn wa', href: waUrl(cancelMsg), target: '_blank', rel: 'noopener' }, 'Avisar al grupo por WhatsApp'),
+        h('button', { type: 'button', class: 'ghost sq', onclick: async (e) => {
+          e.currentTarget.disabled = true;
+          try { await updateDoc(doc(db, 'plans', P.id), { canceled: false }); }
+          catch (err) { console.error('reactivarPlan', err); fail('No pudimos reactivar el plan. Probá de nuevo.'); e.currentTarget.disabled = false; }
+        } }, 'Reactivar el plan')) : null));
+  }
+  if (P.note && !P.canceled) {
     kids.push(h('section', { class: 'panel', 'aria-label': 'Mensaje de ' + P.organizer },
       h('p', { class: 'meta', style: 'margin:0;font-weight:700' }, isOrg ? 'Tu mensaje para el grupo' : 'Mensaje de ' + P.organizer),
       h('p', { style: 'margin:0;white-space:pre-wrap;overflow-wrap:anywhere' }, P.note)));
   }
+  mid: {
+  if (P.canceled) break mid;
   const todo = P.flow === 'todo';
   // Primero, quién está votando; al lado, un botón chico por si la persona no es esa.
   if (!isOrg && who && P.stage !== 'cerrado') {
@@ -1270,6 +1340,7 @@ function renderPlan() {
   }
   kids.push(todo ? statusBannerAll(P, who, isOrg) : statusBanner(P, who, isOrg));
   if (!todo) kids.push(stepper(P));
+  else { const sa = stripAll(P, who, isOrg); if (sa) kids.push(sa); }
 
   if (!isOrg && !who && P.stage !== 'cerrado') {
     kids.push(h('section', { class: 'panel' },
@@ -1282,6 +1353,7 @@ function renderPlan() {
   } else {
     if (todo) {
       if (isOrg) {
+        if (!needsInvite(P, who)) kids.push(inviteBlock(P, true));
         const open = orgVotesOpen === null ? !answeredAll(P, who) : orgVotesOpen;
         const det = h('details', { class: 'panel' },
           h('summary', null, answeredAll(P, who) ? 'Paso 2: Tu voto ✓ (tocá para verlo o cambiarlo)' : 'Paso 2: votá vos (tocá acá para votar)'),
@@ -1293,7 +1365,6 @@ function renderPlan() {
         kids.push(peopleEditor(P));
         kids.push(bestBlock(P));
         kids.push(closePanel(P, who));
-        if (!needsInvite(P, who)) kids.push(inviteBlock(P));
       } else {
         kids.push(votingWizard(P, who, false));
         if (who && answeredAll(P, who)) kids.push(whoBlock(P, who, false));
@@ -1308,8 +1379,9 @@ function renderPlan() {
       else if (!isOrg) kids.push(h('p', { class: 'meta' }, 'Cuando ' + P.organizer + ' cierre la etapa, pasamos a la siguiente.'));
     }
   }
-  if (isOrg && P.stage !== 'cerrado') kids.push(saveLinkBlock(P));
-  if (isOrg && !accountUser()) kids.push(accountPanel());
+  if (isOrg && P.stage !== 'cerrado' && !P.canceled) kids.push(saveLinkBlock(P));
+  if (isOrg && !accountUser() && !P.canceled) kids.push(accountPanel());
+  }
   // Quitar de mi lista: solo lo saca de MI pantalla de inicio. El plan sigue existiendo para el grupo.
   kids.push(h('div', { class: 'delwrap stack', style: 'gap:10px' },
     h('button', { type: 'button', class: 'ghost', style: 'width:100%', onclick: () => { forget(P.id); pendingDelete = null; go(null); } }, 'Quitar de mi lista'),
@@ -1370,6 +1442,7 @@ async function sendAccountLink() {
   if (!auth) { acct.msg = 'Todavía estamos conectando. Probá de nuevo en unos segundos.'; refreshAccount(); return; }
   acct.busy = true; acct.msg = ''; refreshAccount();
   try {
+    try { auth.languageCode = 'es'; } catch (e) {} // el email llega en español
     await sendSignInLinkToEmail(auth, email, { url: location.origin + '/?cuenta=1', handleCodeInApp: true });
     lsSet(EMAIL_KEY, email); acct.email = email; acct.mode = 'sent';
   } catch (e) {
@@ -1537,12 +1610,14 @@ function renderHomeList() {
   if (!homeLoaded) { box.replaceChildren(h('p', { class: 'meta' }, 'Cargando tus planes…')); return; }
   box.replaceChildren.apply(box, homeItems.map((it) => {
     const d = it.d;
-    const status = d.stage === 'cerrado' ? 'Plan cerrado' : (d.flow === 'todo' ? 'Votando' : 'Votando: ' + STAGES[stageIndex(d.stage)].q);
+    const status = d.canceled ? 'Plan cancelado' : d.stage === 'cerrado' ? 'Plan cerrado' : (d.flow === 'todo' ? 'Votando' : 'Votando: ' + STAGES[stageIndex(d.stage)].q);
     const mine = d.ownerUid === uid;
     return h('article', { class: 'panel' },
       h('div', null,
         h('h3', null, d.title),
-        h('p', { class: 'meta' }, status + ' · ' + (d.people || []).length + ' personas' + (mine ? ' · Organizás vos' : ''))),
+        h('p', { class: 'meta statusline' },
+          h('span', { class: 'tag ' + (d.canceled ? 'cancelado' : d.stage === 'cerrado' ? 'cerrado' : 'votando') }, (d.stage === 'cerrado' && !d.canceled ? '✓ ' : '') + status),
+          ' ' + (d.people || []).length + ' personas' + (mine ? ' · Organizás vos' : ''))),
       h('div', { class: 'actions' }, h('button', { type: 'button', onclick: () => go(it.id) }, 'Abrir')));
   }));
 }
