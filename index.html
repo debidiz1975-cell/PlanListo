@@ -54,7 +54,7 @@ p{margin:0}
 .stack{display:flex;flex-direction:column;gap:16px;min-width:0}
 .panel{background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:20px;display:flex;flex-direction:column;gap:14px;min-width:0}
 label,.label{font-weight:700;display:block;margin-bottom:4px}
-input[type=text],input[type=date],input[type=time],select,textarea{
+input[type=text],input[type=email],input[type=date],input[type=time],select,textarea{
   width:100%;min-height:56px;padding:10px 14px;font:inherit;color:var(--fg);
   background:var(--bg);border:2px solid var(--line);border-radius:10px;
 }
@@ -265,6 +265,7 @@ details.panel>summary{cursor:pointer;font-family:var(--font-display);font-weight
       <div id="plans" class="stack"></div>
     </section>
 
+    <section id="acctBox" aria-live="polite"></section>
     <section id="proBox"></section>
     <section id="venuesPreview"></section>
 
@@ -284,7 +285,8 @@ details.panel>summary{cursor:pointer;font-family:var(--font-display);font-weight
 /* Firebase se descarga DESPUÉS de mostrar la pantalla (ver boot): así el formulario
    aparece enseguida, aun con conexión lenta, y no espera a que baje todo el SDK. */
 let initializeApp, initializeAppCheck, ReCaptchaEnterpriseProvider, getAuth, onAuthStateChanged, signInAnonymously;
-let getFirestore, doc, getDoc, setDoc, addDoc, updateDoc, deleteDoc, collection, onSnapshot, serverTimestamp, getDocs;
+let isSignInWithEmailLink, sendSignInLinkToEmail, signInWithEmailLink, linkWithCredential, EmailAuthProvider, signOut;
+let getFirestore, doc, getDoc, setDoc, addDoc, updateDoc, deleteDoc, collection, onSnapshot, serverTimestamp, getDocs, query, where;
 const FB = 'https://www.gstatic.com/firebasejs/13.1.0/';
 import { firebaseConfig } from './firebase-config.js';
 import {
@@ -1188,7 +1190,9 @@ function saveLinkBlock(P) {
   const txt = 'Mi plan en PlanListo: ' + P.title + '\nGuardá este mensaje. Con este enlace volvés a ver el plan: ' + link;
   return h('section', { class: 'panel', 'aria-labelledby': 'sl' },
     h('h3', { id: 'sl' }, 'Guardá el enlace de tu plan'),
-    h('p', { class: 'meta', style: 'margin:0' }, 'Con este enlace volvés a ver tu plan desde cualquier lugar. Para seguir organizándolo y poder cerrarlo, abrilo siempre desde el mismo navegador donde lo creaste. Si lo abrís desde otro celular o navegador, lo vas a ver como invitada: podés ver y votar, pero no cerrarlo.'),
+    h('p', { class: 'meta', style: 'margin:0' }, accountUser()
+      ? 'Con este enlace volvés a ver tu plan. Como guardaste tus planes con tu email, entrando con él lo ves como organizadora desde cualquier celular o computadora.'
+      : 'Con este enlace volvés a ver tu plan desde cualquier lugar. Para seguir organizándolo y poder cerrarlo, abrilo siempre desde el mismo navegador donde lo creaste, o guardá tus planes con tu email. Si lo abrís desde otro celular o navegador sin cuenta, lo vas a ver como invitada: podés ver y votar, pero no cerrarlo.'),
     h('div', { class: 'actions' },
       h('a', { class: 'btn wa', href: waUrl(txt), target: '_blank', rel: 'noopener' }, 'Mandármelo por WhatsApp'),
       h('button', { type: 'button', class: 'ghost', onclick: (e) => copyText(link, e.currentTarget) }, 'Copiar enlace')),
@@ -1305,6 +1309,7 @@ function renderPlan() {
     }
   }
   if (isOrg && P.stage !== 'cerrado') kids.push(saveLinkBlock(P));
+  if (isOrg && !accountUser()) kids.push(accountPanel());
   // Quitar de mi lista: solo lo saca de MI pantalla de inicio. El plan sigue existiendo para el grupo.
   kids.push(h('div', { class: 'delwrap stack', style: 'gap:10px' },
     h('button', { type: 'button', class: 'ghost', style: 'width:100%', onclick: () => { forget(P.id); pendingDelete = null; go(null); } }, 'Quitar de mi lista'),
@@ -1344,6 +1349,130 @@ function renderPlan() {
   }
 }
 let lastPlanShown = null;
+
+/* ---------- cuenta con email (opcional) ---------- */
+// Sirve para ver los mismos planes desde cualquier celular o computadora. La app anda igual sin cuenta.
+const EMAIL_KEY = 'planlisto-email', ACCT_KEY = 'planlisto-acct-exists';
+let acct = { open: false, email: '', mode: 'idle', msg: '', ok: '', busy: false }; // mode: idle | sent | confirm
+function lsGet(k) { try { return localStorage.getItem(k) || ''; } catch (e) { return ''; } }
+function lsSet(k, v) { try { if (v) localStorage.setItem(k, v); else localStorage.removeItem(k); } catch (e) {} }
+const mailOk = (x) => /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(x);
+function accountUser() { const u = auth && auth.currentUser; return u && !u.isAnonymous && u.email ? u : null; }
+function refreshAccount() {
+  const box = $('#acctBox');
+  const homeVisible = !$('#home').hidden;
+  if (box) { if (homeVisible) box.replaceChildren(accountPanel()); else box.replaceChildren(); }
+  if (cur && !$('#planView').hidden) renderPlan();
+}
+async function sendAccountLink() {
+  const email = (acct.email || '').trim().toLowerCase();
+  if (!mailOk(email)) { acct.msg = 'Escribí un email válido, por ejemplo nombre@gmail.com.'; refreshAccount(); return; }
+  if (!auth) { acct.msg = 'Todavía estamos conectando. Probá de nuevo en unos segundos.'; refreshAccount(); return; }
+  acct.busy = true; acct.msg = ''; refreshAccount();
+  try {
+    await sendSignInLinkToEmail(auth, email, { url: location.origin + '/?cuenta=1', handleCodeInApp: true });
+    lsSet(EMAIL_KEY, email); acct.email = email; acct.mode = 'sent';
+  } catch (e) {
+    console.error('sendAccountLink', e);
+    acct.msg = (e && e.code === 'auth/too-many-requests')
+      ? 'Hiciste muchos intentos. Esperá un rato y probá de nuevo.'
+      : 'No pudimos enviar el email. Revisá que esté bien escrito y probá de nuevo. (Código: ' + ((e && e.code) || 'desconocido') + ')';
+  }
+  acct.busy = false; refreshAccount();
+}
+async function finishEmailLink(email, fromBoot) {
+  email = (email || '').trim().toLowerCase();
+  if (!mailOk(email)) { acct.msg = 'Escribí el mismo email al que te llegó el enlace.'; refreshAccount(); return; }
+  acct.busy = true; acct.msg = ''; refreshAccount();
+  const href = location.href;
+  try {
+    const u0 = auth.currentUser;
+    // Si este dispositivo ya tiene planes y todavía no hay cuenta con ese email, "convertimos" la sesión
+    // (así los planes siguen siendo tuyos). Si el email ya tenía cuenta, entramos a esa cuenta.
+    const upgrade = u0 && u0.isAnonymous && ids().length > 0 && lsGet(ACCT_KEY) !== email;
+    if (upgrade) {
+      try { await linkWithCredential(u0, EmailAuthProvider.credentialWithLink(email, href)); }
+      catch (e) {
+        if (e && (e.code === 'auth/email-already-in-use' || e.code === 'auth/credential-already-in-use')) {
+          lsSet(ACCT_KEY, email);
+          await signInWithEmailLink(auth, email, href);
+        } else throw e;
+      }
+    } else {
+      await signInWithEmailLink(auth, email, href);
+    }
+    uid = auth.currentUser.uid;
+    lsSet(EMAIL_KEY, email); lsSet(ACCT_KEY, email);
+    try { history.replaceState({}, '', location.pathname); } catch (e) {}
+    acct.mode = 'idle'; acct.open = false; acct.msg = '';
+    acct.ok = '¡Listo! Tus planes quedaron guardados. Entrando con este email desde cualquier celular o computadora los vas a ver.';
+    acct.busy = false;
+    homeLoaded = false; refreshAccount();
+    if (!fromBoot) { if (!cur) loadHome(); else renderPlan(); }
+  } catch (e) {
+    console.error('finishEmailLink', e);
+    const c = (e && e.code) || '';
+    acct.busy = false;
+    if (c === 'auth/invalid-action-code' || c === 'auth/expired-action-code') {
+      acct.msg = 'Este enlace ya se usó o venció. Pedí uno nuevo y listo.';
+      acct.mode = 'idle'; acct.open = true; acct.email = email;
+      try { history.replaceState({}, '', location.pathname); } catch (e2) {}
+    } else if (c === 'auth/invalid-email') {
+      acct.msg = 'Ese email no coincide con el que pidió el enlace. Revisalo.';
+    } else {
+      acct.msg = 'No pudimos terminar de entrar. Probá de nuevo. (Código: ' + (c || 'desconocido') + ')';
+    }
+    refreshAccount();
+  }
+}
+async function leaveAccount() {
+  try { await signOut(auth); } catch (e) {}
+  lsSet(EMAIL_KEY, '');
+  location.href = location.origin + '/';
+}
+function accountPanel() {
+  const u = accountUser();
+  const msg = acct.msg ? h('p', { class: 'msg', role: 'alert', style: 'margin:0' }, acct.msg) : null;
+  if (u) {
+    return h('section', { class: 'panel' },
+      h('h3', null, 'Tus planes están guardados'),
+      acct.ok ? h('p', { style: 'margin:0;font-weight:700' }, acct.ok) : null,
+      h('p', { class: 'meta', style: 'margin:0' }, 'Entraste con ' + u.email + '. Entrando con ese email desde cualquier celular o computadora vas a ver tus planes.'),
+      h('p', { class: 'note', style: 'margin:0' }, 'Si salís de tu cuenta, este dispositivo deja de mostrar tus planes hasta que vuelvas a entrar.'),
+      h('button', { type: 'button', class: 'ghost sq', onclick: leaveAccount }, 'Salir de mi cuenta'));
+  }
+  if (acct.mode === 'confirm') {
+    return h('section', { class: 'panel' },
+      h('h3', null, 'Confirmá tu email'),
+      h('p', { class: 'meta', style: 'margin:0' }, 'Para terminar de entrar, escribí el mismo email al que te llegó el enlace.'),
+      h('input', { type: 'email', id: 'acctEmail', autocomplete: 'email', inputmode: 'email', placeholder: 'nombre@gmail.com', value: acct.email, 'aria-label': 'Tu email', oninput: (e) => { acct.email = e.target.value; } }),
+      msg,
+      h('button', { type: 'button', class: 'sq', disabled: acct.busy ? 'disabled' : null, onclick: () => finishEmailLink(acct.email) }, acct.busy ? 'Entrando…' : 'Confirmar y entrar'));
+  }
+  if (acct.mode === 'sent') {
+    return h('section', { class: 'panel' },
+      h('h3', null, 'Revisá tu correo'),
+      h('p', { style: 'margin:0' }, 'Te mandamos un enlace a ' + acct.email + '. Abrí tu correo y tocá el enlace. Si no lo ves, mirá también en Spam o en Promociones.'),
+      h('p', { class: 'note', style: 'margin:0' }, 'Podés abrirlo desde este dispositivo o desde otro.'),
+      ids().length ? h('p', { class: 'note', style: 'margin:0;font-weight:700' }, 'Importante: para no perder los planes que ya creaste acá, abrí el enlace en este mismo navegador (el mismo donde estás ahora).') : null,
+      h('button', { type: 'button', class: 'ghost sq', onclick: () => { acct.mode = 'idle'; acct.open = true; acct.msg = ''; refreshAccount(); } }, 'Usar otro email'));
+  }
+  if (!acct.open) {
+    return h('button', { type: 'button', class: 'ghost sq', style: 'width:100%;height:auto;line-height:1.35;padding:14px 20px', onclick: () => { acct.open = true; refreshAccount(); const i = $('#acctEmail'); if (i) i.focus(); } },
+      'Guardar mis planes para verlos desde cualquier lugar');
+  }
+  return h('section', { class: 'panel' },
+    h('h3', null, 'Guardá tus planes con tu email'),
+    h('p', { class: 'meta', style: 'margin:0' }, 'Es opcional. Te mandamos un enlace a tu correo: lo tocás y listo, sin contraseña. Después, con el mismo email, ves tus planes desde cualquier celular o computadora.'),
+    h('div', null,
+      h('label', { for: 'acctEmail' }, 'Tu email'),
+      h('input', { type: 'email', id: 'acctEmail', autocomplete: 'email', inputmode: 'email', placeholder: 'nombre@gmail.com', value: acct.email, oninput: (e) => { acct.email = e.target.value; } })),
+    h('p', { class: 'note', style: 'margin:0' }, 'Si ya guardaste tus planes antes, escribí el mismo email para entrar. Usamos tu email solo para esto.'),
+    msg,
+    h('div', { class: 'actions' },
+      h('button', { type: 'button', class: 'sq', disabled: acct.busy ? 'disabled' : null, onclick: sendAccountLink }, acct.busy ? 'Enviando…' : 'Enviarme el enlace'),
+      h('button', { type: 'button', class: 'ghost sq', onclick: () => { acct.open = false; acct.msg = ''; refreshAccount(); } }, 'Ahora no')));
+}
 
 /* ---------- pantalla de inicio ---------- */
 function renderKinds() {
@@ -1403,6 +1532,7 @@ function renderHomeList() {
   const wrap = $('#mineWrap');
   wrap.hidden = !haveHome();
   showNew();
+  const ab = $('#acctBox'); if (ab && !$('#home').hidden) ab.replaceChildren(accountPanel());
   const box = $('#plans');
   if (!homeLoaded) { box.replaceChildren(h('p', { class: 'meta' }, 'Cargando tus planes…')); return; }
   box.replaceChildren.apply(box, homeItems.map((it) => {
@@ -1423,7 +1553,19 @@ async function loadHome() {
     try { const s = await getDoc(doc(db, 'plans', id)); return s.exists() ? { id: id, d: s.data() } : null; }
     catch (e) { return null; }
   }));
-  homeItems = items.filter(Boolean);
+  const out = items.filter(Boolean);
+  // Con cuenta: sumamos los planes que armaste desde cualquier dispositivo.
+  if (accountUser()) {
+    try {
+      const snap = await getDocs(query(collection(db, 'plans'), where('ownerUid', '==', uid)));
+      const extra = [];
+      snap.forEach((d) => { if (!out.some((x) => x.id === d.id)) extra.push({ id: d.id, d: d.data() }); });
+      const ms = (x) => (x.d.createdAt && x.d.createdAt.toMillis ? x.d.createdAt.toMillis() : 0);
+      extra.sort((a, b) => ms(b) - ms(a));
+      extra.forEach((x) => out.push(x));
+    } catch (e) { console.warn('No pudimos leer los planes de la cuenta', e); }
+  }
+  homeItems = out;
   homeLoaded = true;
   renderHomeList();
 }
@@ -1689,8 +1831,8 @@ async function boot() {
     ]);
     ({ initializeApp } = mApp);
     ({ initializeAppCheck, ReCaptchaEnterpriseProvider } = mCheck);
-    ({ getAuth, onAuthStateChanged, signInAnonymously } = mAuth);
-    ({ getFirestore, doc, getDoc, setDoc, addDoc, updateDoc, deleteDoc, collection, onSnapshot, serverTimestamp, getDocs } = mStore);
+    ({ getAuth, onAuthStateChanged, signInAnonymously, isSignInWithEmailLink, sendSignInLinkToEmail, signInWithEmailLink, linkWithCredential, EmailAuthProvider, signOut } = mAuth);
+    ({ getFirestore, doc, getDoc, setDoc, addDoc, updateDoc, deleteDoc, collection, onSnapshot, serverTimestamp, getDocs, query, where } = mStore);
     const app = initializeApp(firebaseConfig);
     /* App Check: avisa a Firebase que las consultas vienen de la app real de PlanListo.
        Tiene que ir ANTES de usar Auth o Firestore. Si falla, la app sigue andando
@@ -1716,6 +1858,15 @@ async function boot() {
     fail('No pudimos conectar con Firebase. Revisá los datos de firebase-config.js.');
     return;
   }
+  // Si llegó desde el enlace del email, terminamos de entrar.
+  try {
+    if (isSignInWithEmailLink(auth, location.href)) {
+      const saved = lsGet(EMAIL_KEY);
+      if (saved) await finishEmailLink(saved, true);
+      else { acct.mode = 'confirm'; acct.open = true; }
+    }
+  } catch (e) { console.warn('enlace de email', e); }
+  refreshAccount();
   // El logo grande lleva siempre al inicio (Tus planes).
   const brand = $('#brandHome');
   if (brand) brand.addEventListener('click', (e) => { e.preventDefault(); go(null); });
