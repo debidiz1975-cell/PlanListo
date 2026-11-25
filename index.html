@@ -229,6 +229,7 @@ details.panel>summary{cursor:pointer;font-family:var(--font-display);font-weight
         <div>
           <label for="npPeople">¿A quiénes invitás? Separá los nombres con coma</label>
           <input type="text" id="npPeople" placeholder="Marta, Luis, Laura, Jorge">
+          <p class="note" id="npPreview" style="margin-top:6px" aria-live="polite"></p>
         </div>
         <div>
           <label for="npNote">Algo extra para el grupo (opcional)</label>
@@ -1114,6 +1115,85 @@ function closedBlock(P) {
   );
 }
 
+// Para quien organiza: corregir la lista de invitadas (sin romper los votos que ya se hicieron).
+let peopleDraft = null;
+function peopleEditor(P) {
+  const sig = P.people.join('\u0001');
+  if (!peopleDraft || peopleDraft.id !== P.id || peopleDraft.sig !== sig) peopleDraft = { id: P.id, sig: sig, names: P.people.slice(), add: '', msg: '', open: peopleDraft && peopleDraft.id === P.id ? peopleDraft.open : false };
+  const d = peopleDraft;
+  const locked = (i) => i === 0 || votedAny(P, P.people[i]);
+  const compute = () => {
+    const head = [], tail = [];
+    d.names.forEach((nm, i) => {
+      if (locked(i)) { head.push(P.people[i]); return; }
+      const parts = splitNames(nm);
+      if (!parts.length) { head.push(''); return; }
+      head.push(parts[0]); parts.slice(1).forEach((x) => tail.push(x));
+    });
+    splitNames(d.add).forEach((x) => tail.push(x));
+    return { head: head, tail: tail };
+  };
+  const preview = h('p', { class: 'meta', style: 'margin:0' });
+  const msg = h('p', { class: 'msg', role: 'alert', style: 'margin:0' }, d.msg);
+  const upPreview = () => {
+    const c = compute(), extra = uniqNames(c.tail, []).filter((x) => !c.head.some((y) => y.toLowerCase() === x.toLowerCase()));
+    preview.textContent = extra.length ? 'Se van a agregar al final: ' + extra.join(', ') + '.' : '';
+  };
+  const rows = P.people.map((p, i) => locked(i)
+    ? h('li', null, p, h('span', null, i === 0 ? 'Organiza' : 'Ya votó: no se puede cambiar'))
+    : h('li', { style: 'display:block' }, h('input', {
+        type: 'text', value: d.names[i], 'aria-label': 'Nombre ' + (i + 1), maxlength: '60',
+        oninput: (e) => { d.names[i] = e.target.value; d.msg = ''; msg.textContent = ''; upPreview(); }
+      })));
+  const addInput = h('input', {
+    type: 'text', value: d.add, id: 'peopleAdd', placeholder: 'Por ejemplo: Ana, Luis y Marta', maxlength: '200', 'aria-label': 'Agregar personas',
+    oninput: (e) => { d.add = e.target.value; d.msg = ''; msg.textContent = ''; upPreview(); }
+  });
+  const save = async (e) => {
+    const c = compute();
+    if (c.head.some((x) => !x)) { d.msg = 'Hay un nombre vacío. Escribilo o dejalo como estaba.'; msg.textContent = d.msg; return; }
+    const all = c.head.concat(c.tail);
+    for (let i = 0; i < all.length; i++) {
+      for (let j = i + 1; j < all.length; j++) {
+        if (all[i].toLowerCase() === all[j].toLowerCase()) { d.msg = 'El nombre "' + all[j] + '" está repetido.'; msg.textContent = d.msg; return; }
+      }
+    }
+    if (all.length > 40) { d.msg = 'Son demasiadas personas: el máximo es 40.'; msg.textContent = d.msg; return; }
+    if (all.join('\u0001') === P.people.join('\u0001')) { d.msg = 'No hay cambios para guardar.'; msg.textContent = d.msg; return; }
+    const btn = e.currentTarget; btn.disabled = true;
+    try {
+      await updateDoc(doc(db, 'plans', P.id), { people: all });
+      peopleDraft = null; fail('Lista guardada.');
+    } catch (err) {
+      console.error('peopleEditor', err);
+      d.msg = 'No pudimos guardar los cambios. Probá de nuevo.'; msg.textContent = d.msg; btn.disabled = false;
+    }
+  };
+  upPreview();
+  const det = h('details', { class: 'panel' },
+    h('summary', { style: 'min-height:44px;display:flex;align-items:center;cursor:pointer;font-weight:700' }, '¿Escribiste mal un nombre? Corregí la lista'),
+    h('p', { class: 'meta', style: 'margin:0' }, 'Podés corregir los nombres de quienes todavía no votaron. Si dos nombres quedaron pegados (por ejemplo "Luis y Laura"), al guardar se separan solos. Quienes ya votaron no se pueden cambiar.'),
+    h('ul', { class: 'who' }, rows),
+    h('div', null, h('label', { for: 'peopleAdd' }, 'Agregar más personas (opcional)'), addInput),
+    preview, msg,
+    h('button', { type: 'button', class: 'sq', onclick: save }, 'Guardar cambios'));
+  if (d.open) det.setAttribute('open', '');
+  det.addEventListener('toggle', () => { d.open = det.open; });
+  return det;
+}
+
+// Para quien organiza: guardar el enlace del plan (por ejemplo, mandándoselo por WhatsApp a sí misma).
+function saveLinkBlock(P) {
+  const link = planLink(P.id);
+  const txt = 'Mi plan en PlanListo: ' + P.title + '\nGuardá este mensaje. Con este enlace volvés a ver el plan: ' + link;
+  return h('section', { class: 'panel', 'aria-labelledby': 'sl' },
+    h('h3', { id: 'sl' }, 'Guardá el enlace de tu plan'),
+    h('p', { class: 'meta', style: 'margin:0' }, 'Con este enlace volvés a ver tu plan desde cualquier lugar. Para seguir organizándolo y poder cerrarlo, abrilo siempre desde el mismo navegador donde lo creaste. Si lo abrís desde otro celular o navegador, lo vas a ver como invitada: podés ver y votar, pero no cerrarlo.'),
+    h('div', { class: 'actions' },
+      h('a', { class: 'btn wa', href: waUrl(txt), target: '_blank', rel: 'noopener' }, 'Mandármelo por WhatsApp'),
+      h('button', { type: 'button', class: 'ghost', onclick: (e) => copyText(link, e.currentTarget) }, 'Copiar enlace')),
+    h('p', { class: 'meta', style: 'margin:0' }, 'En WhatsApp, elegí tu propio nombre en la lista de chats para que el enlace quede guardado ahí.'));
+}
 function inviteBlock(P) {
   const link = planLink(P.id);
   const input = h('input', { type: 'text', readonly: true, value: link, id: 'linkInput', 'aria-label': 'Enlace del plan' });
@@ -1206,6 +1286,7 @@ function renderPlan() {
         det.addEventListener('toggle', () => { orgVotesOpen = det.open; });
         kids.push(det);
         kids.push(whoBlock(P, who, true));
+        kids.push(peopleEditor(P));
         kids.push(bestBlock(P));
         kids.push(closePanel(P, who));
         if (!needsInvite(P, who)) kids.push(inviteBlock(P));
@@ -1223,6 +1304,7 @@ function renderPlan() {
       else if (!isOrg) kids.push(h('p', { class: 'meta' }, 'Cuando ' + P.organizer + ' cierre la etapa, pasamos a la siguiente.'));
     }
   }
+  if (isOrg && P.stage !== 'cerrado') kids.push(saveLinkBlock(P));
   // Quitar de mi lista: solo lo saca de MI pantalla de inicio. El plan sigue existiendo para el grupo.
   kids.push(h('div', { class: 'delwrap stack', style: 'gap:10px' },
     h('button', { type: 'button', class: 'ghost', style: 'width:100%', onclick: () => { forget(P.id); pendingDelete = null; go(null); } }, 'Quitar de mi lista'),
@@ -1281,12 +1363,28 @@ function renderKinds() {
     }, x.e + ' ' + x.t)));
 }
 
+// Separa nombres escritos con coma, punto y coma, renglón nuevo, "y", "e", "/", "&" o "+".
+function splitNames(str) {
+  return String(str || '').split(/[,;\n]+|\s+(?:y|e)\s+|\s*[\/&+]\s*/i).map((x) => x.trim()).filter(Boolean);
+}
+function uniqNames(list, seed) {
+  const out = (seed || []).slice();
+  list.forEach((x) => { if (!out.some((y) => y.toLowerCase() === x.toLowerCase())) out.push(x); });
+  return out;
+}
 let minTouched = false;
+function refreshPreview() {
+  const box = $('#npPreview'); if (!box) return;
+  const org = $('#npOrg').value.trim();
+  const names = uniqNames(splitNames($('#npPeople').value), org ? [org] : []).slice(org ? 1 : 0);
+  if (!names.length) { box.textContent = ''; return; }
+  box.textContent = 'Vas a invitar a ' + names.length + (names.length === 1 ? ' persona: ' : ' personas: ') + names.join(', ') + '. Si algún nombre quedó mal, corregilo acá arriba.';
+}
 function refreshMin() {
+  refreshPreview();
   const sel = $('#npMin'); if (!sel) return;
   const org = $('#npOrg').value.trim();
-  const names = $('#npPeople').value.split(/[,\n]/).map((x) => x.trim()).filter(Boolean);
-  const all = []; (org ? [org] : []).concat(names).forEach((x) => { if (!all.some((y) => y.toLowerCase() === x.toLowerCase())) all.push(x); });
+  const all = uniqNames(splitNames($('#npPeople').value), org ? [org] : []);
   const n = Math.max(all.length, 2), prev = Number(sel.value) || 0;
   sel.replaceChildren.apply(sel, Array.from({ length: n - 1 }, (_, i) => h('option', { value: String(i + 2) }, (i + 2) === n ? 'Todas (' + n + ')' : (i + 2) + ' personas')));
   sel.value = String(minTouched && prev >= 2 ? Math.min(prev, n) : defMin(n));
@@ -1505,7 +1603,7 @@ async function createPlan() {
   const msg = $('#formMsg');
   const title = $('#npTitle').value.trim();
   const org = $('#npOrg').value.trim();
-  const names = $('#npPeople').value.split(/[,\n]/).map((s) => s.trim()).filter(Boolean);
+  const names = splitNames($('#npPeople').value);
   const note = ($('#npNote').value || '').trim().slice(0, 300);
   if (!title) { msg.textContent = 'Ponele un nombre al plan.'; $('#npTitle').focus(); return; }
   if (!org) { msg.textContent = 'Escribí tu nombre.'; $('#npOrg').focus(); return; }
